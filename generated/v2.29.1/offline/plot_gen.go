@@ -3,6 +3,7 @@ package offline
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -32,17 +33,27 @@ func Show(fig *grob.Fig) {
 	browser.OpenReader(buf)
 }
 
-func figToBuffer(fig *grob.Fig) *bytes.Buffer {
-	figBytes, err := json.Marshal(fig)
-	if err != nil {
-		panic(err)
-	}
-	tmpl, err := template.New("plotly").Parse(baseHtml)
-	if err != nil {
-		panic(err)
-	}
+func figToBuffer(fig ...*grob.Fig) *bytes.Buffer {
+	allPlots := ""
 	buf := &bytes.Buffer{}
-	tmpl.Execute(buf, string(figBytes))
+
+	for i, fig := range fig {
+		plot := template.Must(template.New("plots").Parse(plotHtml))
+		figBytes, err := json.Marshal(fig)
+		if err != nil {
+			panic(err)
+		}
+		buf2 := &bytes.Buffer{}
+		plot.Execute(buf2, plotVars{i, string(figBytes)})
+		allPlots += buf2.String()
+	}
+
+	tmpl, err := template.New("plotly").Parse(fmt.Sprintf(baseHtml, allPlots))
+	if err != nil {
+		panic(err)
+	}
+	tmpl.Execute(buf, nil)
+
 	return buf
 }
 
@@ -71,8 +82,8 @@ func Serve(fig *grob.Fig, opt ...Options) {
 }
 
 // Write writes the HTML page for the figure to the provided writer.
-func Write(fig *grob.Fig, w io.Writer) error {
-	buf := figToBuffer(fig)
+func Write(w io.Writer, fig ...*grob.Fig) error {
+	buf := figToBuffer(fig...)
 	_, err := w.Write(buf.Bytes())
 	return err
 }
@@ -92,10 +103,19 @@ var baseHtml = `
 		<script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
 	</head>
 	<body>
-		<div id="plot"></div>
-	<script>
-		data = JSON.parse('{{ . }}')
-		Plotly.newPlot('plot', data);
-	</script>
+	%v
 	</body>
+	`
+
+type plotVars struct {
+	I    int
+	Data string
+}
+
+var plotHtml = `
+	<div id="plot-{{ .I }}"></div>
+	<script>
+		data = JSON.parse('{{ .Data }}')
+		Plotly.newPlot('plot-{{ .I }}', data);
+	</script>
 	`
